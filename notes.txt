@@ -1,0 +1,5 @@
+NOTES:
+steganogrpahy stuff is dependent on the following libraries:
+http://www.pythonware.com/products/pil/
+https://www.dlitz.net/software/pycrypto/
+Have to install them first using easy_install or something similar
