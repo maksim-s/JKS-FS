@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 import os, sys
 from errno import *
 from stat import *
@@ -8,6 +7,9 @@ import fcntl
 
 import fuse
 from fuse import Fuse
+
+from directory import *
+from steganography import *
 
 
 if not hasattr(fuse, '__version__'):
@@ -43,11 +45,13 @@ class Jks(Fuse):
         Fuse.__init__(self, *args, **kw)
         self.root = '/tmp/fuse/'
         self.file_class = self.JksFile
+        # Unpatch and decrypt in fsinit
 
     def __del__(self):
         # (TO DO)
         # Recompress and encrypt into Image.
         # Check: Do this here?
+        return
 
 # Metadata operations:
     def getattr(self, path):
@@ -77,8 +81,9 @@ class Jks(Fuse):
     def mknod(self, path, mode, dev):
         os.mknod("." + path, mode, dev)
 
-    def rename(self, path, path1):
-        os.rename("." + path, "." + path1)
+    # Commented out since Maksim's code assumes filenames cannot be changed
+##    def rename(self, path, path1):
+##        os.rename("." + path, "." + path1)
 
 # Other operations:
     # Hard link; therefore Okay.
@@ -158,54 +163,62 @@ class Jks(Fuse):
         # (TO DO)
         # Unpatch
         # Decrypt
-        # Change root?
+        # Change root dir?
+
+        patch_path = self.root # (TO DO) Ask Kainar to check this.
+        seek_location = "?" # (TO DO) Ask Kainar.
+        imgs_path = "?"
+        psswd = "?"
+        if dispatchDirectory(patch_path, seek_location):
+            decoder = Decoder(patch_path, imgs_path, psswd)
+            decoder.decodePatch() # (TO DO) Ask Maksim to return Success/Not.
         os.chdir(self.root)
 
-''' File class; instantiated for 'open' '''
-class JksFile(object):
-    def __init__(self, path, flags, *mode):
-        self.file = os.fdopen(os.open("." + path, flags, *mode),
-                              flagTomode(flags))
-        self.fd = self.file.fileno()
+    ''' File class; instantiated for 'open' '''
+    class JksFile(object):
+        def __init__(self, path, flags, *mode):
+            self.file = os.fdopen(os.open("." + path, flags, *mode),
+                                  flagTomode(flags))
+            self.fd = self.file.fileno()
 
-    def read(self, length, offset):
-        self.file.seek(offset)
-        return self.file.read(length)
+        def read(self, length, offset):
+            self.file.seek(offset)
+            return self.file.read(length)
 
-    def write(self, buf, offset):
-        self.file.seek(offset)
-        self.file.write(buf)
-        return len(buf)
+        def write(self, buf, offset):
+            self.file.seek(offset)
+            self.file.write(buf)
+            return len(buf)
 
-    def release(self, flags):
-        self.file.close()
+        def release(self, flags):
+            self.file.close()
 
-    def _fflush(self):
-        if 'w' in self.file.mode or 'a' in self.file.mode:
-            self.file.flush()
+        def _fflush(self):
+            if 'w' in self.file.mode or 'a' in self.file.mode:
+                self.file.flush()
 
-    def fsync(self, isfsyncfile):
-        self._fflush()
-        if isfsyncfile and hasattr(os, 'fdatasync'):
-            os.fdatasync(self.fd)
-        else:
-            os.fsync(self.fd)
+        def fsync(self, isfsyncfile):
+            self._fflush()
+            if isfsyncfile and hasattr(os, 'fdatasync'):
+                os.fdatasync(self.fd)
+            else:
+                os.fsync(self.fd)
 
-    def flush(self):
-        self._fflush()
-        # cf. xmp_flush() in fusexmp_fh.c
-        os.close(os.dup(self.fd))
+        def flush(self):
+            self._fflush()
+            # cf. xmp_flush() in fusexmp_fh.c
+            os.close(os.dup(self.fd))
 
-    def fgetattr(self):
-        return os.fstat(self.fd)
+        def fgetattr(self):
+            return os.fstat(self.fd)
 
-    def ftruncate(self, len):
-        self.file.truncate(len)
+        def ftruncate(self, len):
+            self.file.truncate(len)
 
 def main():
 
     usage = Fuse.fusage
-    server = Xmp(version="%prog " + fuse.__version__,
+    server = Jks(version="%prog " + fuse.__version__,
                  usage=usage)
 
     server.parser.add_option(mountopt="root",
