@@ -46,14 +46,44 @@ def decrypt(key, iv, data):
     return bf.new(key, bf.MODE_CBC, iv).decrypt(data)
 
 class ImageLinker:
-    def __init__(self, imgs_path):
+    def __init__(self, imgs_path, psswd):
         self.imgs = getImageFiles(imgs_path)
         self.imgs_path = imgs_path
+        self.psswd = int(hashlib.sha256(psswd).hexdigest()[:8], 16)
+        head = [self.imgs_path + '/' + f
+                for f in os.listdir(self.imgs_path)
+                if f[-4:] == '.png'][0]
+        im = Image.open(head).convert('RGB')
+        self.head_img = (head, im)
+
+    # encodes the password in the first 11 pixels of the head image
+    # this function assumes that the image is at least 11 pixels wide
+    def encodePsswd(self):
+        psswd = self.psswd
+        pix = self.head_img[1].load()
+        w = 10
+        h = 0
+        pix_2 = pix[w, h][2]
+        pix_1 = (pix[w, h][1] & (~1)) | (psswd & 1)
+        psswd = psswd >> 1
+        pix_0 = (pix[w, h][0] & (~1)) | (psswd & 1)
+        psswd = psswd >> 1
+        pix[10, 0] = (pix_0, pix_1, pix_2)
+        for x in range(1, 11):
+            pix_2 = (pix[w - x, h][2] & (~1)) | (psswd & 1)
+            psswd = psswd >> 1
+            pix_1 = (pix[w - x, h][1] & (~1)) | (psswd & 1)
+            psswd = psswd >> 1
+            pix_0 = (pix[w - x, h][0] & (~1)) | (psswd & 1)
+            psswd = psswd >> 1
+            pix[w - x, h] = (pix_0, pix_1, pix_2)
+        self.head_img[1].save(self.head_img[0], 'PNG')
 
     # takes a dictionary of imgs and links them all together
     # by encoding the last 11 pixels of each image to point
     # to the next image. Returns the first/head image.
     def linkImages(self):
+        self.encodePsswd()
         image_files = [self.imgs_path + '/' + f
                        for f in os.listdir(self.imgs_path) 
                        if f[-4:] == '.png']
@@ -89,12 +119,39 @@ class ImageLinker:
             pix[w - x, h] = (pix_0, pix_1, pix_2)
         im.save(img, 'PNG')
 
-class Encoder:
+class Encoder(object):
     def __init__(self, patch_path, imgs_path, psswd):
         self.patch_path = patch_path
         self.imgs_path = imgs_path
-        self.psswd = psswd
+        self.key = psswd
+        self.psswd = int(hashlib.sha256(psswd).hexdigest()[:8], 16)
         self.imgs = getImageFiles(imgs_path)
+        head = [self.imgs_path + '/' + f
+                for f in os.listdir(self.imgs_path)
+                if f[-4:] == '.png'][0]
+        im = Image.open(head).convert('RGB')
+        self.head_img = (head, im)
+
+    # checks if the password decoded from the head image matches the given password
+    def checkPsswd(self):
+        if self.psswd == self.getPsswd():
+            return True
+        else:
+            return False
+
+    # decodes the password from the first 11 pixels of the head image
+    def getPsswd(self):
+        pix = self.head_img[1].load()
+        w = 10
+        h = 0
+        vector = 0
+        for x in reversed(range(1, 11)):
+            vector = (vector | (pix[w-x, h][0] & 1)) << 1
+            vector = (vector | (pix[w-x, h][1] & 1)) << 1
+            vector = (vector | (pix[w-x, h][2] & 1)) << 1
+        vector = (vector | (pix[w, h][0] & 1)) << 1
+        vector = (vector | (pix[w, h][1] & 1))
+        return vector
 
     # read the last 11 pixels of the image to get the hash and then 
     # lookup the name of the next image. Note: first 32 bits only, 
@@ -124,6 +181,11 @@ class Encoder:
         im = image[1]
         h = im.size[1] - 1
         w = im.size[0] - 1
+        if image[0] == self.head_img[0] and x <= 10 and y == 0:
+            if ch < 2:
+                return (11, y, ch + 1, image)
+            else:
+                return (11, y, 0, image)
         if y == h and x >= w - 11:
             next_image = self.getNextImage(image)
             return (0, 0, 0, next_image)
@@ -163,80 +225,28 @@ class Encoder:
         im.save(image_name[0], 'PNG')
 
     def encodePatch(self):
-        image_files = [self.imgs_path + '/' + f
-                       for f in os.listdir(self.imgs_path)
-                       if f[-4:] == '.png']
-        head_img = image_files[0]
-        max_size = 0
-        for i in self.imgs:
-            im = Image.open(self.imgs[i]).convert('RGB')
-            max_size += (im.size[0]*im.size[1]-11)*3
-        im = Image.open(head_img).convert('RGB')
-        fin = open(self.patch_path)
-        data = compress(fin.read())
-        if max_size < len(data)*8:
-            return False
+        if self.checkPsswd():
+            max_size = 0
+            for i in self.imgs:
+                im = Image.open(self.imgs[i]).convert('RGB')
+                max_size += (im.size[0]*im.size[1]-11)*3
+            fin = open(self.patch_path)        
+            data = compress(fin.read())
+            if max_size < len(data)*8:
+                return False, 'Not enough space'
+            else:
+                length = struct.pack('i', len(data))
+                iv = struct.pack("Q", random.getrandbits(64))
+                self.encodeData(self.head_img, length + iv + encrypt(self.key, iv, data))
+                return True, 'Success'
         else:
-            length = struct.pack('i', len(data))
-            iv = struct.pack("Q", random.getrandbits(64))
-            self.encodeData((head_img,im), length + iv + encrypt(self.psswd, iv, data))
-            return True
+            return False, 'Wrong Password'
 
 
 
-class Decoder:
+class Decoder(Encoder):
     def __init__(self, patch_path, imgs_path, psswd):
-        self.patch_path = patch_path
-        self.imgs_path = imgs_path
-        self.psswd = psswd
-        self.imgs = getImageFiles(self.imgs_path)
-        head = [self.imgs_path + '/' + f
-                for f in os.listdir(self.imgs_path) if f[-4:] == '.png'][0]
-        im = Image.open(head).convert('RGB')
-        self.head_img = (head, im)
-    
-
-    # read the last 11 pixels of the image to get the hash and then              
-    # lookup the name of the next image. Note: first 32 bits only,
-    # the last bit is not used.
-    def getNextImage(self, image_name):
-        im = image_name[1]
-        pix = im.load()
-        h = im.size[1] - 1
-        w = im.size[0] - 1
-        vector = 0
-        for x in reversed(range(1, 11)):
-            vector = (vector | (pix[w-x, h][0] & 1)) << 1
-            vector = (vector | (pix[w-x, h][1] & 1)) << 1
-            vector = (vector | (pix[w-x, h][2] & 1)) << 1
-        vector = (vector | (pix[w, h][0] & 1)) << 1
-        vector = (vector | (pix[w, h][1] & 1))
-        if vector == 0:
-            return 'None', 0
-        else:
-            im = Image.open(self.imgs[vector]).convert('RGB')
-            return self.imgs[vector], im
-
-    # given current image name, (x, y) cooridnates of the pixel
-    # and the R/G/B ch returns the next pixel, channel
-    # and image name to encode the data
-    def nextBit(self, x, y, ch, image):
-        im = image[1]
-        h = im.size[1] - 1
-        w = im.size[0] - 1
-        if y == h and x >= w - 11:
-            next_image = self.getNextImage(image)
-            return (0, 0, 0, next_image)
-        elif x == w:
-            if ch < 2:
-                return (x, y, ch + 1, image)
-            else:
-                return (0, y + 1, 0, image)
-        else:
-            if ch < 2:
-                return (x, y, ch + 1, image)
-            else:
-                return (x + 1, y, 0, image)
+        super(Decoder, self).__init__(patch_path, imgs_path, psswd)
 
     # given the first image of the linked list of images, returns the
     # data encoded in the linked list
@@ -256,7 +266,10 @@ class Decoder:
                     pix = im.load()
                     image_name = new_image_name
                 byte |= ((pix[x, y][ch] & 1) << (7 - j))
-                x, y, ch, new_image_name = self.nextBit(x, y, ch, new_image_name)
+                x, y, ch, new_image_name = super(Decoder, self).nextBit(x, 
+                                                                        y, 
+                                                                        ch, 
+                                                                        new_image_name)
             if i < 4:
                 length |= (byte << (i * 8))
                 if i == 3: 
@@ -267,19 +280,24 @@ class Decoder:
         return data
 
     def decodePatch(self):
-        data = self.decodeData()
-        length = struct.unpack('i', data[:4])[0]
-        iv, data = data[4:12], data[12:]
-        fout = open(self.patch_path, 'w')
-        fout.write(decompress(decrypt(self.psswd, iv, data)[:length]))
-        fout.close()
+        if super(Decoder, self).checkPsswd():
+            data = self.decodeData()
+            length = struct.unpack('i', data[:4])[0]
+            iv, data = data[4:12], data[12:]
+            fout = open(self.patch_path, 'w')
+            fout.write(decompress(decrypt(self.key, iv, data)[:length]))
+            fout.close()
+            return True, 'Success'
+        else:
+            return False, 'Wrong Password'
 
-'''
-linker = ImageLinker('test_stuff')
+
+linker = ImageLinker('test_stuff', 'haha')
 linker.linkImages()
-'''
+
 encoder = Encoder('test_stuff/message.txt', 'test_stuff', 'haha')
-encoder.encodePatch()
+print encoder.encodePatch()
 
 decoder = Decoder('test_stuff/decoded_message.txt', 'test_stuff', 'haha')
-decoder.decodePatch()
+print decoder.decodePatch()
+
