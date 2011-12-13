@@ -45,40 +45,18 @@ def decrypt(key, iv, data):
     key = hashlib.sha256(key).digest()[:7]
     return bf.new(key, bf.MODE_CBC, iv).decrypt(data)
 
-class Encoder:
-    def __init__(self, patch_path, imgs_path, psswd):
-        self.patch_path = patch_path
-        self.imgs_path = imgs_path
-        self.psswd = psswd
+class ImageLinker:
+    def __init__(self, imgs_path):
         self.imgs = getImageFiles(imgs_path)
-
-    # read the last 11 pixels of the image to get the hash and then 
-    # lookup the name of the next image. Note: first 32 bits only, 
-    # the last bit is not used.
-    def getNextImage(self, image_name):
-        im = image_name[1]
-        pix = im.load()
-        h = im.size[1] - 1
-        w = im.size[0] - 1
-        vector = 0
-        for x in reversed(range(1, 11)):
-            vector = (vector | (pix[w-x, h][0] & 1)) << 1
-            vector = (vector | (pix[w-x, h][1] & 1)) << 1
-            vector = (vector | (pix[w-x, h][2] & 1)) << 1
-        vector = (vector | (pix[w, h][0] & 1)) << 1
-        vector = (vector | (pix[w, h][1] & 1))
-        if vector == 0:
-            return 'None', 0
-        else:
-            im = Image.open(self.imgs[vector]).convert('RGB')
-            return self.imgs[vector], im
+        self.imgs_path = imgs_path
 
     # takes a dictionary of imgs and links them all together
-    # by encoding the last 11 pixels of each image to point 
+    # by encoding the last 11 pixels of each image to point
     # to the next image. Returns the first/head image.
     def linkImages(self):
-        image_files = [self.imgs_path + '/' + f  
-                       for f in os.listdir(self.imgs_path) if f[-4:] == '.png']
+        image_files = [self.imgs_path + '/' + f
+                       for f in os.listdir(self.imgs_path) 
+                       if f[-4:] == '.png']
         for i in range(len(image_files)):
             if i == len(image_files) - 1:
                 ptr = 0
@@ -110,6 +88,34 @@ class Encoder:
             ptr = ptr >> 1
             pix[w - x, h] = (pix_0, pix_1, pix_2)
         im.save(img, 'PNG')
+
+class Encoder:
+    def __init__(self, patch_path, imgs_path, psswd):
+        self.patch_path = patch_path
+        self.imgs_path = imgs_path
+        self.psswd = psswd
+        self.imgs = getImageFiles(imgs_path)
+
+    # read the last 11 pixels of the image to get the hash and then 
+    # lookup the name of the next image. Note: first 32 bits only, 
+    # the last bit is not used.
+    def getNextImage(self, image_name):
+        im = image_name[1]
+        pix = im.load()
+        h = im.size[1] - 1
+        w = im.size[0] - 1
+        vector = 0
+        for x in reversed(range(1, 11)):
+            vector = (vector | (pix[w-x, h][0] & 1)) << 1
+            vector = (vector | (pix[w-x, h][1] & 1)) << 1
+            vector = (vector | (pix[w-x, h][2] & 1)) << 1
+        vector = (vector | (pix[w, h][0] & 1)) << 1
+        vector = (vector | (pix[w, h][1] & 1))
+        if vector == 0:
+            return 'None', 0
+        else:
+            im = Image.open(self.imgs[vector]).convert('RGB')
+            return self.imgs[vector], im
 
     # given current image name, (x, y) cooridnates of the pixel
     # and the R/G/B ch returns the next pixel, channel 
@@ -157,7 +163,10 @@ class Encoder:
         im.save(image_name[0], 'PNG')
 
     def encodePatch(self):
-        head_img = self.linkImages()
+        image_files = [self.imgs_path + '/' + f
+                       for f in os.listdir(self.imgs_path)
+                       if f[-4:] == '.png']
+        head_img = image_files[0]
         max_size = 0
         for i in self.imgs:
             im = Image.open(self.imgs[i]).convert('RGB')
@@ -264,3 +273,13 @@ class Decoder:
         fout = open(self.patch_path, 'w')
         fout.write(decompress(decrypt(self.psswd, iv, data)[:length]))
         fout.close()
+
+'''
+linker = ImageLinker('test_stuff')
+linker.linkImages()
+'''
+encoder = Encoder('test_stuff/message.txt', 'test_stuff', 'haha')
+encoder.encodePatch()
+
+decoder = Decoder('test_stuff/decoded_message.txt', 'test_stuff', 'haha')
+decoder.decodePatch()
