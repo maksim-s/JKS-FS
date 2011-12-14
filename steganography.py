@@ -1,4 +1,4 @@
-import sys, os, struct, random, getpass, gzip, StringIO, hashlib
+import sys, os, struct, random, gzip, StringIO, hashlib
 import Image
 from Crypto.Cipher import Blowfish as bf 
 
