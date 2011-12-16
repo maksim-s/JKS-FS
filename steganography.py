@@ -1,5 +1,5 @@
 import sys, os, struct, random, gzip, StringIO, hashlib
-import Image, logging
+import Image
 from Crypto.Cipher import Blowfish as bf 
 
 # assuming here that file names cannot be changed
