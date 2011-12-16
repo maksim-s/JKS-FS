@@ -156,30 +156,15 @@ def dispatchDirectory(patchName, newDirPath, seekLocation):
   f.close()
   return True
 
-import logging
-logger2 = logging.getLogger('myapp23')
-hdlr = logging.FileHandler('/var/tmp/myapp23.log')
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-hdlr.setFormatter(formatter)
-logger2.addHandler(hdlr) 
-logger2.setLevel(logging.WARNING)
-
 ## deleting fiiles + shredding them
 def deleteFiles(dirList, dirPath):
     for fileName in dirList:
-        '''        
-        try:
-            retcode  = subprocess.call('srm ' + dirPath + "/" +fileName, shell=True)
-            if retcode < 0:
-                logger2.error('child error code')
-            else:
-                logger2.error('child returned!')
-                logger2.error(retcode)
-        except OSError, e:
-            logger2.error('execution failed')
-        '''
-        logger2.error('removing a file:')
-        logger2.error(fileName) 
+        result = 'inLoop'
+        shreded = False
+        while result == 'inLoop':
+            if not shreded:
+                result = os.system('shred '+ dirPath + "/" + fileName)
+                shreded = True
         os.remove(dirPath + "/" + fileName)
     
 def removeDirectory(dirEntry):
@@ -188,11 +173,7 @@ def removeDirectory(dirEntry):
     retVal.insert(0, dirEntry[0])
     return retVal
   
-counter = 0
-import time
-
 def clean(path):
-    logger2.error('Starting to securely remove files')   
     emptyDirs = []
     tree = os.walk(path)
     for directory in tree:
@@ -200,11 +181,7 @@ def clean(path):
         emptyDirs = emptyDir + emptyDirs 
 
     for emptyDir in emptyDirs:
-        logger2.error('removing folder')   
         os.rmdir(emptyDir)
-#    ret = os.system('srm -rd ' + path)
-#    logger2.error(ret)
-    logger2.error('Securely removed files')    
     return True
 
 
