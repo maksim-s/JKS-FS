@@ -1,4 +1,5 @@
 import os
+import subprocess, sys
 ##    File metadata:
 ##    * st_mode - protection bits,
 ##    * st_ino - inode number,
@@ -53,6 +54,7 @@ def copyFile(fo, filepath, rootDirLen):
   str2 = os.read(fd2, size)
   fo.write(str2)
   fo.write("\n")
+  os.close(fd2)
   return True
 
 def copyDirectory(fo, dirpath, rootDirLen):
@@ -67,9 +69,9 @@ def copyDirectory(fo, dirpath, rootDirLen):
   fo.write( stats)
 
 ##patching file
-def patchDirectory(rootDir):
+def patchDirectory(rootDir, patchName):
   rootDirLen = len(rootDir)
-  patch = '/afs/athena.mit.edu/user/k/a/kaynar/Desktop/6.858/root.txt'
+  patch = patchName
   if os.path.exists(patch):
     os.remove(patch)
   fd = os.open( patch, os.O_RDWR|os.O_CREAT )
@@ -89,9 +91,8 @@ def patchDirectory(rootDir):
   return True
 
 ##parser and directory creator
-def dispatchDirectory(newDirPath, seekLocation):
-  print "new dir path %s" % newDirPath
-  patch = '/afs/athena.mit.edu/user/k/a/kaynar/Desktop/6.858/root.txt'
+def dispatchDirectory(patchName, newDirPath, seekLocation):
+  patch = patchName
   f = open(patch, 'r')
   fileSize = os.path.getsize(patch)
   f.seek(seekLocation)
@@ -103,29 +104,20 @@ def dispatchDirectory(newDirPath, seekLocation):
   (mode,ino,dev,nlink,uid,gid,size,atime,mtime,ctime) = (0,0,0,0,0,0,0,0,0,0)
   while f.tell() != fileSize:
     line = f.readline()
-    #print f.tell()
     line = line.strip()
-    print "line: %s"%line
     if nextLine == "File":
-      print 'file'
       curPath = newDirPath + line
-      print "new cur path %s" % curPath
       #curFile = open(curPath, 'w')
     elif nextLine == "Directory":
-      print 'dir'
       curPath = newDirPath+line
-      print "new cur path %s" % curPath
-      print line
       isDir = True
       
       #os.mkdir(curPath)
     elif nextLine == "Stats":
       l = line
       arrStats = l.split(',')
-      print arrStats
       (mode,ino,dev,nlink,uid,gid,size,atime,mtime,ctime) = arrStats
       if isDir:
-        print 'creating new dir'
         os.mkdir(curPath, int(mode))
         os.utime(curPath, (int(atime), int(mtime)))
         isDir = False
@@ -134,15 +126,11 @@ def dispatchDirectory(newDirPath, seekLocation):
       size = int(size)
 
     nextLine = ''
-    if line == "HEADER":
-      print "header"
-    elif line == "ItemType:File":
+    if line == "ItemType:File":
       nextLine = "File"
     elif line == "ItemType:Directory":
-      print "going to directory"
       nextLine = "Directory"
     elif line == "Stats:":
-      print "going to stats"
       nextLine = "Stats"
     elif line == "Size:":
       nextLine = "Size"
@@ -150,52 +138,73 @@ def dispatchDirectory(newDirPath, seekLocation):
       nextLine = "Content"
       seekLocation = f.tell()
       break
-    print nextLine
 
   if nextLine == 'Content':
-    print "creating a file %s" % curPath
     fd1 = os.open( curPath, os.O_RDWR|os.O_CREAT, int(mode))
     fo1 = os.fdopen(fd1, 'w+')
     fd2 = os.open(patch, os.O_RDWR)
     os.lseek(fd2, seekLocation, 0)
-    print seekLocation
-    print "size: %s" %size
     text = os.read(fd2, size)
-    print text
     fo1.write(text)
     fo1.close()
+    os.close(fd2)
     os.utime(curPath, (int(atime), int(mtime)))
     seekLocation = f.tell() + size
-    print "going one level down %s" % newDirPath
-    return dispatchDirectory(newDirPath, seekLocation)
+    f.close()
+    return dispatchDirectory(patchName, newDirPath, seekLocation)
       ##new file/directory
+  f.close()
   return True
+
+import logging
+logger2 = logging.getLogger('myapp23')
+hdlr = logging.FileHandler('/var/tmp/myapp23.log')
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+hdlr.setFormatter(formatter)
+logger2.addHandler(hdlr) 
+logger2.setLevel(logging.WARNING)
 
 ## deleting fiiles + shredding them
 def deleteFiles(dirList, dirPath):
     for fileName in dirList:
-        print "Deleting " + fileName
-        result = 'boob'
-        shreded = False
-        while result == 'boob':
-          #print "bla"
-          if not shreded:
-            result = os.system('shred ' + dirPath + "/" +fileName)
-            shreded = True
-        #os.remove(dirPath + "/" + fileName)
-
+        '''        
+        try:
+            retcode  = subprocess.call('srm ' + dirPath + "/" +fileName, shell=True)
+            if retcode < 0:
+                logger2.error('child error code')
+            else:
+                logger2.error('child returned!')
+                logger2.error(retcode)
+        except OSError, e:
+            logger2.error('execution failed')
+        '''
+        logger2.error('removing a file:')
+        logger2.error(fileName) 
+        os.remove(dirPath + "/" + fileName)
+    
 def removeDirectory(dirEntry):
     retVal = []
-    print "Deleting files in " + dirEntry[0]
     deleteFiles(dirEntry[2], dirEntry[0])
     retVal.insert(0, dirEntry[0])
     return retVal
   
+counter = 0
+import time
+
 def clean(path):
+    logger2.error('Starting to securely remove files')   
     emptyDirs = []
     tree = os.walk(path)
     for directory in tree:
         emptyDir = removeDirectory(directory)
-        emptyDirs = emptyDir + emptyDirs
-    os.system('rm -rf ' + path)
-  
+        emptyDirs = emptyDir + emptyDirs 
+
+    for emptyDir in emptyDirs:
+        logger2.error('removing folder')   
+        os.rmdir(emptyDir)
+#    ret = os.system('srm -rd ' + path)
+#    logger2.error(ret)
+    logger2.error('Securely removed files')    
+    return True
+
+

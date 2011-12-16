@@ -1,5 +1,5 @@
-import sys, os, struct, random, getpass, gzip, StringIO, hashlib
-import Image
+import sys, os, struct, random, gzip, StringIO, hashlib
+import Image, logging
 from Crypto.Cipher import Blowfish as bf 
 
 # assuming here that file names cannot be changed
@@ -11,8 +11,8 @@ def getImageFiles(path):
     imgs = {}
     for f in files:
         if f[-4:] == '.png':
-            h = hashlib.sha256(path + '/' + f).hexdigest()[:8]
-            imgs[int(h, 16)] = path + '/' + f
+            h = hashlib.sha256(path + '/' + f).hexdigest()
+            imgs[int(h[:8], 16)] = path + '/' + f
     return imgs
 
 # compress data with gzip and return output as string
@@ -78,6 +78,7 @@ class ImageLinker:
             psswd = psswd >> 1
             pix[w - x, h] = (pix_0, pix_1, pix_2)
         self.head_img[1].save(self.head_img[0], 'PNG')
+
 
     # takes a dictionary of imgs and links them all together
     # by encoding the last 11 pixels of each image to point
@@ -213,6 +214,8 @@ class Encoder(object):
         for i in range(len(data) + 4):
             b = ord(length[i] if i < 4 else data[i - 4])
             for j in range(8):
+                if new_image_name[0] == head_img[0]:
+                    x, y, ch, new_image_name = self.nextBit(x, y, ch, new_image_name)
                 if new_image_name[0] != image_name[0]:
                     im.save(image_name[0], 'PNG')
                     im = new_image_name[1]
@@ -261,15 +264,18 @@ class Decoder(Encoder):
         while i < size:
             byte = 0
             for j in range(8):
+                if new_image_name[0] == self.head_img[0]:
+                    x, y, ch, new_image_name = self.nextBit(x, y, ch, new_image_name)
                 if new_image_name[0] != image_name[0]:
                     im = new_image_name[1]
                     pix = im.load()
                     image_name = new_image_name
                 byte |= ((pix[x, y][ch] & 1) << (7 - j))
-                x, y, ch, new_image_name = super(Decoder, self).nextBit(x, 
-                                                                        y, 
-                                                                        ch, 
-                                                                        new_image_name)
+                x, y, ch, new_image_name = super(Decoder, 
+                                                 self).nextBit(x, 
+                                                               y, 
+                                                               ch, 
+                                                               new_image_name)
             if i < 4:
                 length |= (byte << (i * 8))
                 if i == 3: 
@@ -291,13 +297,4 @@ class Decoder(Encoder):
         else:
             return False, 'Wrong Password'
 
-
-linker = ImageLinker('test_stuff', 'haha')
-linker.linkImages()
-
-encoder = Encoder('test_stuff/message.txt', 'test_stuff', 'haha')
-print encoder.encodePatch()
-
-decoder = Decoder('test_stuff/decoded_message.txt', 'test_stuff', 'haha')
-print decoder.decodePatch()
 
