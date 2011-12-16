@@ -1,3 +1,14 @@
 JKS-FS
 
 Light Weight Deniable File System.
+
+To install all the dependencies, run sudo ./setup.sh
+
+FS creation:
+./fs.py create <image folder> <name of the file system>
+
+Unmounting:
+fusermount <name of the file system>
+
+Mounting:
+./fs.py mount <image folder> <name of the file system>
