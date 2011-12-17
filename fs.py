@@ -81,7 +81,9 @@ class Xmp(Fuse):
             self.root = createEmptyName(self.image_folder)           
             fileName = createTmpFile(self.abspath, self.image_folder)
             decoder = Decoder(fileName, os.path.join(self.abspath, self.image_folder), self.password)
-            (successBoolean, message) = decoder.decodePatch()            
+            (successBoolean, message) = decoder.decodePatch()
+            if not successBoolean:
+                os.rmdir(self.mount_folder)
             dispatchDirectory(fileName, self.root, 0)
             removeFilePermanently(fileName)
         Fuse.__init__(self, *args, **kw)
